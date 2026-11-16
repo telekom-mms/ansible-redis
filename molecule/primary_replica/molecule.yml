@@ -1,0 +1,37 @@
+---
+dependency:
+  name: galaxy
+  enabled: false
+driver:
+  name: docker
+platforms:
+  - name: redis-primary
+    image: ${MOLECULE_IMAGE:-geerlingguy/docker-debian12-ansible:latest}
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    privileged: true
+    pre_build_image: true
+    command: ""
+    docker_networks:
+      - name: redis-primary-replica
+    networks:
+      - name: redis-primary-replica
+        aliases:
+          - redis-primary
+  - name: redis-replica
+    image: ${MOLECULE_IMAGE:-geerlingguy/docker-debian12-ansible:latest}
+    cgroupns_mode: host
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    privileged: true
+    pre_build_image: true
+    command: ""
+    networks:
+      - name: redis-primary-replica
+        aliases:
+          - redis-replica
+provisioner:
+  name: ansible
+verifier:
+  name: ansible

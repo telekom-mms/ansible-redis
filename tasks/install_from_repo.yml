@@ -1,8 +1,8 @@
 - name: Install redis from repo
-  package:
+  ansible.builtin.package:
     name: redis
 
 - name: Install redis-sentinel from repo
-  package:
-    name: redis-sentinel
   when: redis_sentinel
+  ansible.builtin.package:
+    name: redis-sentinel

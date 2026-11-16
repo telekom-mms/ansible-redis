@@ -1,151 +1,163 @@
 ---
-- name: create sentinel working directory
-  file:
+- name: Create sentinel working directory
+  ansible.builtin.file:
     path: "{{ redis_sentinel_dir }}"
     state: directory
-    recurse: yes
+    recurse: true
     owner: "{{ redis_user }}"
 
-- name: create sentinel init script
-  template:
+- name: Create sentinel init script
+  when:
+    - redis_as_service
+    - ansible_facts['service_mgr'] | default() != "systemd"
+    - not (not redis_install_from_source and redis_service_name == 'redis')
+  ansible.builtin.template:
     src: "{{ item }}"
     dest: /etc/init.d/sentinel_{{ redis_sentinel_port }}
-    mode: 0755
+    mode: "0755"
   # Choose the distro-specific template. We must specify the templates
   # path here because with_first_found tries to find files in files/
   with_first_found:
     - files:
-      - "{{ ansible_os_family }}/redis_sentinel.init.j2"
-      - default/redis_sentinel.init.j2
+        - "{{ ansible_facts['os_family'] }}/redis_sentinel.init.j2"
+        - default/redis_sentinel.init.j2
       paths:
         - ../templates
-  when: redis_as_service and ansible_service_mgr|default() != "systemd" and not (not redis_install_from_source and redis_service_name == 'redis')
 
-- name: create sentinel systemd service
-  template:
+- name: Create sentinel systemd service
+  when:
+    - redis_as_service
+    - ansible_facts['service_mgr'] | default() == "systemd"
+    - not (not redis_install_from_source and redis_service_name == 'redis')
+  ansible.builtin.template:
     src: "{{ item }}"
     dest: /etc/systemd/system/sentinel_{{ redis_sentinel_port }}.service
-    mode: 0644
+    mode: "0644"
   with_first_found:
     - files:
-      - "{{ ansible_os_family }}/redis_sentinel.service.j2"
-      - default/redis_sentinel.service.j2
+        - "{{ ansible_facts['os_family'] }}/redis_sentinel.service.j2"
+        - default/redis_sentinel.service.j2
       paths:
         - ../templates
   register: sentinel_unit_file
-  when: redis_as_service and ansible_service_mgr|default() == "systemd" and not (not redis_install_from_source and redis_service_name == 'redis')
 
-- name: create systemd tmpfiles configuration
-  template:
-    src: etc/tmpfiles.d/redis.conf.j2
-    dest: /etc/tmpfiles.d/redis.conf
-    mode: 0644
+- name: Create systemd tmpfiles configuration
   when:
     - redis_as_service
-    - ansible_service_mgr|default() == "systemd"
+    - ansible_facts['service_mgr'] | default() == "systemd"
     - (redis_sentinel_pidfile|dirname).startswith("/var/run") or (redis_sentinel_pidfile|dirname).startswith("/run")
     - not (not redis_install_from_source and redis_service_name == 'redis')
+  ansible.builtin.template:
+    src: etc/tmpfiles.d/redis.conf.j2
+    dest: /etc/tmpfiles.d/redis.conf
+    mode: "0644"
 
-- name: reload systemd daemon
-  systemd:
-    daemon_reload: true
+- name: Reload systemd daemon
   when:
     - redis_as_service
-    - ansible_service_mgr|default() == "systemd"
+    - ansible_facts['service_mgr'] | default() == "systemd"
     - sentinel_unit_file is changed
+  ansible.builtin.systemd:
+    daemon_reload: true
 
-- name: set sentinel to start at boot
-  service:
-    name: sentinel_{{ redis_sentinel_port }}
-    enabled: yes
+- name: Set sentinel to start at boot
   when: redis_as_service
+  ansible.builtin.service:
+    name: sentinel_{{ redis_sentinel_port }}
+    enabled: true
+
 
 # Check then create log dir to prevent aggressively overwriting permissions
-- name: check if sentinel log directory exists
-  stat:
-    path: "{{ redis_sentinel_logfile|dirname }}"
+- name: Check if sentinel log directory exists
+  when: redis_sentinel_logfile != '""'
+  ansible.builtin.stat:
+    path: "{{ redis_sentinel_logfile | dirname }}"
   register: sentinel_logdir
   changed_when: false
-  when: redis_sentinel_logfile != '""'
 
-- name: create sentinel log directory if it does not exist
-  file:
-    state: directory
-    path: "{{ redis_sentinel_logfile|dirname }}"
-    owner: "{{ redis_user }}"
-    group: "{{ redis_group }}"
+- name: Create sentinel log directory if it does not exist
   when:
     - redis_sentinel_logfile != '""'
     - not sentinel_logdir.stat.exists
+  ansible.builtin.file:
+    state: directory
+    path: "{{ redis_sentinel_logfile | dirname }}"
+    owner: "{{ redis_user }}"
+    group: "{{ redis_group }}"
+    mode: "0755"
 
-- name: touch the sentinel log file
-  file:
+- name: Touch the sentinel log file
+  when: redis_sentinel_logfile != '""'
+  ansible.builtin.file:
     state: touch
     path: "{{ redis_sentinel_logfile }}"
     owner: "{{ redis_user }}"
     group: "{{ redis_group }}"
-  when: redis_sentinel_logfile != '""'
+    mode: "0644"
 
-- name: check if sentinel pid directory exists
-  stat:
-    path: "{{ redis_sentinel_pidfile|dirname }}"
+- name: Check if sentinel pid directory exists
+  when: redis_sentinel_pidfile != '""'
+  ansible.builtin.stat:
+    path: "{{ redis_sentinel_pidfile | dirname }}"
   register: sentinel_piddir
   changed_when: false
-  when: redis_sentinel_pidfile != '""'
 
-- name: create sentinel pid directory if it does not exist
-  file:
-    state: directory
-    path: "{{ redis_sentinel_pidfile|dirname }}"
-    owner: "{{ redis_user }}"
-    group: "{{ redis_group }}"
+- name: Create sentinel pid directory if it does not exist
   when:
     - redis_sentinel_pidfile != '""'
     - not sentinel_piddir.stat.exists
+  ansible.builtin.file:
+    state: directory
+    path: "{{ redis_sentinel_pidfile | dirname }}"
+    owner: "{{ redis_user }}"
+    group: "{{ redis_group }}"
+    mode: "0755"
 
-- name: check if sentinel dynamic config file exists
-  stat:
+- name: Check if sentinel dynamic config file exists
+  ansible.builtin.stat:
     path: /etc/redis/sentinel_{{ redis_sentinel_port }}.conf
   register: sentinel_config_file
 
-- name: create initial sentinel dynamic config file
-  template:
+- name: Create initial sentinel dynamic config file
+  when: not sentinel_config_file.stat.exists
+  ansible.builtin.template:
     src: redis_sentinel.conf.j2
     dest: /etc/redis/sentinel_{{ redis_sentinel_port }}.conf
     owner: "{{ redis_user }}"
-    mode: 0640
-  when: not sentinel_config_file.stat.exists
-  notify: "restart sentinel {{ redis_sentinel_port }}"
+    mode: "0644"
+  notify: "Restart sentinel {{ redis_sentinel_port }}"
 
-- name: create static sentinel config file
-  template:
+- name: Create static sentinel config file
+  ansible.builtin.template:
     src: redis_sentinel.include.conf.j2
     dest: /etc/redis/sentinel_{{ redis_sentinel_port }}.include.conf
     owner: "{{ redis_user }}"
-    mode: 0640
-  notify: "restart sentinel {{ redis_sentinel_port }}"
+    mode: "0640"
+  notify: "Restart sentinel {{ redis_sentinel_port }}"
 
-- name: add sentinel init config file
-  template:
+- name: Add sentinel init config file
+  when: ansible_facts['os_family'] == "RedHat"
+  ansible.builtin.template:
     dest: /etc/sysconfig/sentinel_{{ redis_sentinel_port }}
     src: redis.init.conf.j2
-  when: ansible_os_family == "RedHat"
-  notify: "restart sentinel {{ redis_sentinel_port }}"
+    mode: "0644"
+  notify: "Restart sentinel {{ redis_sentinel_port }}"
 
-- name: add sentinel init config file
-  template:
+- name: Add sentinel init config file
+  when: ansible_facts['os_family'] == "Debian"
+  ansible.builtin.template:
     dest: /etc/default/sentinel_{{ redis_sentinel_port }}
     src: redis.init.conf.j2
-  when: ansible_os_family == "Debian"
-  notify: "restart sentinel {{ redis_sentinel_port }}"
+    mode: "0644"
+  notify: "Restart sentinel {{ redis_sentinel_port }}"
 
 # Flush handlers before ensuring the service is started to prevent
 # a start and then restart
-- name: flush handlers to apply config changes
-  meta: flush_handlers
+- name: Flush handlers to apply config changes
+  ansible.builtin.meta: flush_handlers
 
-- name: ensure sentinel is running
-  service:
+- name: Ensure sentinel is running
+  when: redis_as_service
+  ansible.builtin.service:
     name: sentinel_{{ redis_sentinel_port }}
     state: started
-  when: redis_as_service

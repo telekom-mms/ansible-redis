@@ -1,0 +1,19 @@
+---
+- name: Retrieve redis checksums
+  ansible.builtin.uri:
+    url: https://raw.githubusercontent.com/antirez/redis-hashes/master/README
+    return_content: true
+  register: redis_checksum_source
+
+- name: Find checksum for redis version
+  ansible.builtin.set_fact:
+    redis_checksum_matches: "{{ redis_checksum_source.content | regex_findall('(?m)^hash\\s+redis-' ~ (redis_version | regex_escape) ~ '\\.tar\\.gz\\s+(sha1|sha256)\\s+([a-fA-F0-9]+)(?:\\s|$)') }}"
+
+- name: Fail when redis checksum is unavailable
+  when: redis_checksum_matches | length != 1
+  ansible.builtin.fail:
+    msg: "No SHA1 or SHA256 checksum found for Redis {{ redis_version }} in the upstream checksum index."
+
+- name: Set redis checksum
+  ansible.builtin.set_fact:
+    redis_checksum: "{{ redis_checksum_matches[0][0] }}:{{ redis_checksum_matches[0][1] }}"

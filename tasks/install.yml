@@ -1,82 +1,82 @@
 ---
-- name: enable overcommit in sysctl
-  sysctl:
-    name: vm.overcommit_memory
-    value: "1"
-    state: present
-    reload: yes
-    ignoreerrors: yes
+- name: Enable overcommit in sysctl
   when:
     - redis_travis_ci is not defined
     - redis_inside_container is not defined
+  ansible.posix.sysctl:
+    name: vm.overcommit_memory
+    value: "1"
+    state: present
+    reload: true
+    ignoreerrors: true
 
-- name: compile redis
-  shell: umask 0022 && make -j{{ ansible_processor_cores|default(1) + 1 }}{{ ' build redis' if redis_version is version('8.10.0', '>') else '' }}{{ ' BUILD_TLS=yes' if redis_make_tls|bool else '' }}
+- name: Compile redis
+  ansible.builtin.shell: umask 0022 && make -j{{ ansible_facts.processor_cores | default(1) + 1 }}{{ ' build redis' if redis_version is version('8.10.0', '>') else '' }}{{ ' BUILD_TLS=yes' if redis_make_tls | bool else '' }}
   args:
     chdir: /usr/local/src/redis-{{ redis_version }}
     creates: /usr/local/src/redis-{{ redis_version }}/src/redis-server
 
-- name: create redis install directory
-  file:
+- name: Create redis install directory
+  ansible.builtin.file:
     path: "{{ redis_install_dir }}"
     state: directory
-    mode: 0755
+    mode: "0755"
 
-- name: check if redis user exists (ignore errors)
-  command: id {{ redis_user }}
-  ignore_errors: yes
+- name: Check if redis user exists (ignore errors)
+  ansible.builtin.command: id {{ redis_user }}
+  ignore_errors: true
   changed_when: false
   register: user_exists
 
-- name: add redis group
-  group:
+- name: Add redis group
+  when: user_exists is failed
+  ansible.builtin.group:
     name: "{{ redis_group }}"
     state: present
-  when: user_exists is failed
 
-- name: add redis user
-  user:
+- name: Add redis user
+  when: user_exists is failed
+  ansible.builtin.user:
     name: "{{ redis_user }}"
     group: "{{ redis_group }}"
     comment: "Redis"
     home: "{{ redis_install_dir }}"
     shell: /bin/false
-    system: yes
-  when: user_exists is failed
+    system: true
 
-- name: create /etc/redis
-  file:
+- name: Create /etc/redis
+  ansible.builtin.file:
     path: /etc/redis
     state: directory
-    mode: 0755
+    mode: "0755"
     owner: "{{ redis_user }}"
 
-- name: create /var/run/redis
-  file:
+- name: Create /var/run/redis
+  ansible.builtin.file:
     path: /var/run/redis
     state: directory
-    mode: 0750
+    mode: "0750"
     owner: "{{ redis_user }}"
     group: "{{ redis_group }}"
 
-- name: install redis
-  shell: umask 0022 && make PREFIX={{ redis_install_dir }} install
+- name: Install redis
+  ansible.builtin.shell: umask 0022 && make PREFIX={{ redis_install_dir }} install
   args:
     chdir: /usr/local/src/redis-{{ redis_version }}
     creates: "{{ redis_install_dir }}/bin/redis-server"
 
-- name: list redis binaries to add to alternatives
-  command: ls -1 {{ redis_install_dir }}/bin
+- name: List redis binaries to add to alternatives
+  ansible.builtin.command: /usr/bin/ls -1 {{ redis_install_dir }}/bin
   register: redis_binaries
   changed_when: false
   check_mode: false
 
-- name: add redis binaries to alternatives
-  alternatives:
+- name: Add redis binaries to alternatives
+  when:
+    - redis_binaries is succeeded
+    - not ansible_check_mode
+  community.general.alternatives:
     name: "{{ item }}"
     path: "{{ redis_install_dir }}/bin/{{ item }}"
     link: "/usr/bin/{{ item }}"
   with_items: "{{ redis_binaries.stdout_lines }}"
-  when:
-    - redis_binaries is succeeded
-    - not ansible_check_mode

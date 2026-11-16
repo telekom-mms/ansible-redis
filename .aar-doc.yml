@@ -1,0 +1,252 @@
+output_template: |
+  <!-- BEGIN_ANSIBLE_DOCS -->
+
+  # Ansible role {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+
+  {{ metadata.galaxy_info.description }}
+
+  ## Contents
+
+  1. [Supported Operating Systems](#supported-operating-systems)
+  2. [Role Variables](#role-variables)
+  3. [Dependencies](#dependencies)
+  4. [Requirements](#requirements)
+  5. [Getting Started](#getting-started)
+    1. [Single Redis node](#single-redis-node)
+    2. [Primary-Replica Replication](#primary-replica-replication)
+    3. [Redis Sentinel](#redis-sentinel)
+  6. [Advanced Options](#advanced-options)
+    1. [Install from local tarball](#install-from-local-tarball)
+    2. [Install inside restricted environments](#install-inside-restricted-environments)
+    3. [Building with TLS support](#building-with-tls-support)
+  8. [Author Information](#author-information)
+  9. [License](#license)
+
+  ## Supported Operating Systems
+  {% for platform in metadata.galaxy_info.platforms %}
+  - {{ platform.name }}
+    {%- if "versions" in platform %}
+    - {{ platform.versions | default([]) | join(', ') }}
+    {%- endif %}
+  {%- endfor %}
+
+  ## Role Variables
+  {% for entrypoint in argument_specs.keys() -%}
+  {% for path, options in entrypoint_options[entrypoint] -%}
+  {% if path | length == 1 -%}
+  {% for name, details in options.items() | sort() %}
+  - `{{ name }}`
+    - Default: `{{ details.display_default }}`
+    - Description: {{ details.display_description }}
+    - Type: {{ details.display_type }}
+    - Required: {{ details.display_required }}
+  {% for child_path, child_options in entrypoint_options[entrypoint] -%}
+  {% if child_path | length > 1 and child_path[1] == name %}
+    - Element options for `{{ child_path[1:] | join('[].') }}[]`:
+  {% for child_name, child_details in child_options.items() | sort() %}
+      - `{{ child_name }}`
+        - Default: `{{ child_details.display_default }}`
+        - Description: {{ child_details.display_description }}
+        - Type: {{ child_details.display_type }}
+        - Required: {{ child_details.display_required }}
+  {% endfor -%}
+  {% endif -%}
+  {% endfor -%}
+  {% endfor -%}
+  {% endif -%}
+  {% endfor -%}
+  {% endfor %}
+
+  ## Dependencies
+
+  {%- if ("dependencies" in metadata) and (metadata.dependencies | length > 0) %}
+  {%- for dependency in metadata.dependencies %}
+  - {{ dependency }}
+  {%- endfor %}
+  {%- else %}
+
+  None.
+  {%- endif %}
+
+  ## Requirements
+
+  Source builds on Red Hat-family and SUSE systems require `gcc`, `gcc-c++`, and `make`,
+  which the role installs automatically.
+
+  The role requires the following Ansible collections:
+
+  ```yaml
+  {% include "requirements.yml" %}
+  ```
+
+  ```bash
+  ansible-galaxy collection install -r requirements.yml
+  ```
+
+  ## Getting Started
+
+  ### Single Redis node
+
+  ```yaml
+  - hosts: all
+    vars:
+      redis_version: 8.10.3
+      redis_bind: 127.0.0.1
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  ### Primary-Replica Replication
+
+  Configuring [replication](http://redis.io/topics/replication) in Redis is accomplished by deploying multiple nodes and setting the `redis_slaveof` variable on the replica nodes, just as you would in the redis.conf. In the example that follows, we'll deploy a Redis primary with three replicas.
+
+  ``` ini
+  [redis-primary]
+  redis-primary
+
+  [redis-replica]
+  redis-replica0[1:3]
+  ```
+
+  ```yaml
+  - hosts: redis-primary
+    vars:
+      redis_version: 8.10.3
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  ```yaml
+  - hosts: redis-replica
+    vars:
+      redis_version: 8.10.3
+      redis_bind: 0.0.0.0
+      redis_slaveof: redis-primary 6379
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  This setup assumes that you have DNS records for `redis-primary` and `redis-replica` nodes. To be more flexible you can define something like this:
+
+  ```yaml
+  {% raw %}
+  redis_slaveof: "{{ hostvars['redis-primary'].ansible_facts.default_ipv4.address }} {{ redis_port }}"
+  {% endraw %}
+  ```
+
+  Running this playbooks will set up a Redis primary with three replicas, using the specified `redis_slaveof` configuration to establish replication.
+
+  ### Redis Sentinel
+
+  Primary-replica replication is useful for durability and distributing reads and writes, but by itself does not provide high availability. If the primary fails, a replica must be promoted and connections redirected to the new primary. [Redis Sentinel](http://redis.io/topics/sentinel) provides automatic failover in a Redis deployment.
+
+  Sentinel itself uses the same redis-server binary that Redis uses, but runs with the `--sentinel` flag and with a different configuration file.
+
+  ```yaml
+  - hosts: redis-sentinel-primary
+    vars:
+      redis_version: 8.10.3
+      redis_bind: 0.0.0.0
+      redis_sentinel: true
+      redis_sentinel_monitors:
+        - name: primary
+          host: redis-sentinel-primary
+          port: 6379
+          down_after_milliseconds: 10000
+      redis_sentinel_config_additional: |
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  ```yaml
+  - hosts: redis-sentinel-replica
+    vars:
+      redis_version: 8.10.3
+      redis_bind: 0.0.0.0
+      redis_slaveof: redis-sentinel-primary 6379
+      redis_sentinel: true
+      redis_sentinel_monitors:
+        - name: primary
+          host: redis-sentinel-primary
+          port: 6379
+          down_after_milliseconds: 10000
+      redis_sentinel_config_additional: |
+        sentinel resolve-hostnames yes
+        sentinel announce-hostnames yes
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  This playbook sets up Redis with Sentinel for high availability, ensuring that if the primary node fails, a replica can be promoted automatically. It is recommended to have at least three Sentinel nodes to achieve a quorum for failover decisions.
+
+  For more information on Redis Sentinel, refer to the [official Redis Sentinel documentation](http://redis.io/topics/sentinel).
+
+  ## Install from local tarball
+
+  To install Redis from a local tarball, set the `redis_tarball` variable to the path of the tarball file. For example:
+
+  ```yaml
+  - hosts: redis
+    vars:
+      redis_version: 8.10.3
+  {% raw %}
+      redis_tarball: /path/to/redis-{{ redis_version }}.tar.gz
+  {% endraw %}
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  ## Install inside restricted environments (e.g. containerized environments)
+
+  If Redis is to be installed inside a systemctl restricted environment, it might be neccessary to change `vm.overcommit_memory` using other means than this role. In such a case the config key `redis_inside_container` can be defined, which causes the role to skip this setting.
+
+  ## Building with TLS support
+
+  To build Redis with TLS support, set the `redis_make_tls` variable to `true`. Note that this requires OpenSSL development libraries to be available on the system.
+
+  ```yaml
+  - hosts: redis
+    vars:
+      redis_version: 8.10.3
+      redis_make_tls: true
+    roles:
+      - {{ metadata.galaxy_info.namespace }}.{{ metadata.galaxy_info.role_name }}
+  ```
+
+  ## Facts
+
+  The following facts are accessible in your inventory or tasks outside of this role.
+
+  {% raw %}
+  - `{{ ansible_local.redis.bind }}`
+  - `{{ ansible_local.redis.port }}`
+  - `{{ ansible_local.redis.sentinel_bind }}`
+  - `{{ ansible_local.redis.sentinel_port }}`
+  - `{{ ansible_local.redis.sentinel_monitors }}`
+  {% endraw %}
+
+  To disable these facts, set `redis_local_facts` to a false value.
+
+  ## Author Information
+  {% for author in metadata.galaxy_info.author.split(', ') %}
+  - {{ author }}
+  {%- endfor %}
+
+  ## License
+
+  {{ metadata.galaxy_info.license }}
+
+  ## Testing
+
+  Run `molecule test -s single_node`, `molecule test -s primary_replica`, or
+  `molecule test -s sentinel`. Running `molecule test` without a scenario uses
+  `default`, an entry point for the single-node test.
+
+  Set `REDIS_VERSION`, `REDIS_MAKE_TLS`, and `MOLECULE_IMAGE` to select the build
+  and container image. `REDIS_MAKE_TLS` enables TLS compilation, not encrypted
+  connections. Multi-container tests disable Redis protected mode only on their
+  isolated Docker networks; no Redis ports are published to the host.
+
+  <!-- END_ANSIBLE_DOCS -->

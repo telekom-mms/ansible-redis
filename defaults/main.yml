@@ -7,13 +7,10 @@ redis_dir: /var/lib/redis/{{ redis_port }}
 redis_config_file_name: "{{ redis_port }}.conf"
 redis_download_url: "http://download.redis.io/releases/redis-{{ redis_version }}.tar.gz"
 
-redis_protected_mode: "yes"
-# Set this to true to validate redis tarball checksum against vars/main.yml
-redis_verify_checksum: false
+# Set this to true to retrieve and validate the tarball checksum from the upstream hash index
+redis_verify_checksum: true
 # Set this value to a local path of a tarball to use for installation instead of downloading
 redis_tarball: false
-# Set this to true to build 32-bit binaries of Redis
-redis_make_32bit: false
 # Set this to true to build redis with TLS support, available only for versions >= 6 (require OpenSSL development libraries)
 redis_make_tls: false
 
@@ -37,10 +34,10 @@ redis_local_facts: true
 redis_service_name: "redis_{{ redis_port }}"
 
 ## Networking/connection options
-redis_bind: false
+redis_bind: 0.0.0.0
 redis_port: 6379
 redis_password: false
-# Slave replication options
+# Replica options
 redis_min_slaves_to_write: 0
 redis_min_slaves_max_lag: 10
 redis_tcp_backlog: 511
@@ -54,9 +51,9 @@ redis_socket_path: false
 redis_socket_perm: 755
 
 ## Replication options
-# Set slaveof just as you would in redis.conf. (e.g. "redis01 6379")
+# Set the replication primary as "host port" (e.g. "redis01 6379").
 redis_slaveof: false
-# Make slaves read-only. "yes" or "no"
+# Make replicas read-only. "yes" or "no"
 redis_slave_read_only: "yes"
 redis_slave_priority: 100
 redis_repl_backlog_size: false
@@ -123,17 +120,15 @@ redis_config_additional: ""
 ## Redis sentinel configs
 # Set this to true on a host to configure it as a Sentinel
 redis_sentinel: false
-redis_sentinel_protected_mode: "yes"
 redis_sentinel_dir: /var/lib/redis/sentinel_{{ redis_sentinel_port }}
 redis_sentinel_bind: 0.0.0.0
 redis_sentinel_port: 26379
-redis_sentinel_password: false
 redis_sentinel_pidfile: /var/run/redis/sentinel_{{ redis_sentinel_port }}.pid
 redis_sentinel_logfile: '""'
 redis_sentinel_syslog_ident: sentinel_{{ redis_sentinel_port }}
 redis_sentinel_oom_score_adjust: 0
 redis_sentinel_monitors:
-  - name: master01
+  - name: primary01
     host: localhost
     port: 6379
     quorum: 2

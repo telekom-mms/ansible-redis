@@ -1,0 +1,11 @@
+---
+- name: Verify single Redis node
+  hosts: all
+  tasks:
+    - name: Wait for Redis to respond
+      ansible.builtin.command: /opt/redis/bin/redis-cli -p 6379 ping
+      register: redis_ping
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: redis_ping.stdout == "PONG"

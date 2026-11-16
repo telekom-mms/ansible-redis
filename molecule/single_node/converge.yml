@@ -1,0 +1,12 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    redis_version: "{{ lookup('env', 'REDIS_VERSION') | default('7.2.17', true) }}"
+    redis_make_tls: "{{ lookup('env', 'REDIS_MAKE_TLS') | default('false', true) | bool }}"
+    redis_bind: 127.0.0.1
+    redis_inside_container: true
+  tasks:
+    - name: Apply Redis role
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"
