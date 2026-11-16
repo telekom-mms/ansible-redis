@@ -11,7 +11,7 @@
     - redis_inside_container is not defined
 
 - name: compile redis
-  shell: umask 0022 && make -j{{ ansible_processor_cores|default(1) + 1 }}{{ ' 32bit' if redis_make_32bit|bool else '' }}{{ ' BUILD_TLS=yes' if redis_make_tls|bool else '' }}
+  shell: umask 0022 && make -j{{ ansible_processor_cores|default(1) + 1 }}{{ ' build redis' if redis_version is version('8.10.0', '>') else '' }}{{ ' BUILD_TLS=yes' if redis_make_tls|bool else '' }}
   args:
     chdir: /usr/local/src/redis-{{ redis_version }}
     creates: /usr/local/src/redis-{{ redis_version }}/src/redis-server
