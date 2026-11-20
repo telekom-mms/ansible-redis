@@ -1,354 +1,637 @@
-# ansible-redis
+<!-- BEGIN_ANSIBLE_DOCS -->
 
-[![Build Status](https://travis-ci.org/DavidWittman/ansible-redis.svg?branch=master)](https://travis-ci.org/DavidWittman/ansible-redis) [![Ansible Galaxy](https://img.shields.io/badge/galaxy-DavidWittman.redis-blue.svg?style=flat)](https://galaxy.ansible.com/davidwittman/redis)
+# Ansible role telekom_mms.redis
 
- - Ansible 2.4+
- - Compatible with most versions of Ubuntu/Debian and RHEL/CentOS 6.x
+Highly configurable role to install Redis and Redis Sentinel from source
 
 ## Contents
 
- 1. [Installation](#installation)
- 2. [Getting Started](#getting-started)
+1. [Supported Operating Systems](#supported-operating-systems)
+2. [Role Variables](#role-variables)
+3. [Dependencies](#dependencies)
+4. [Requirements](#requirements)
+5. [Getting Started](#getting-started)
   1. [Single Redis node](#single-redis-node)
-  2. [Master-Slave Replication](#master-slave-replication)
+  2. [Primary-Replica Replication](#primary-replica-replication)
   3. [Redis Sentinel](#redis-sentinel)
- 3. [Advanced Options](#advanced-options)
-  1. [Verifying checksums](#verifying-checksums)
-  2. [Install from local tarball](#install-from-local-tarball)
-  3. [Building 32-bit binaries](#building-32-bit-binaries)
- 4. [Role Variables](#role-variables)
+6. [Advanced Options](#advanced-options)
+  1. [Install from local tarball](#install-from-local-tarball)
+  2. [Install inside restricted environments](#install-inside-restricted-environments)
+  3. [Building with TLS support](#building-with-tls-support)
+8. [Author Information](#author-information)
+9. [License](#license)
 
-## Installation
+## Supported Operating Systems
 
-``` bash
-$ ansible-galaxy install davidwittman.redis
-```
-
-## Getting started
-
-Below are a few example playbooks and configurations for deploying a variety of Redis architectures.
-
-This role expects to be run as root or as a user with sudo privileges.
-
-### Single Redis node
-
-Deploying a single Redis server node is pretty trivial; just add the role to your playbook and go. Here's an example which we'll make a little more exciting by setting the bind address to 127.0.0.1:
-
-``` yml
----
-- hosts: redis01.example.com
-  vars:
-    - redis_bind: 127.0.0.1
-  roles:
-    - davidwittman.redis
-```
-
-``` bash
-$ ansible-playbook -i redis01.example.com, redis.yml
-```
-
-**Note:** You may have noticed above that I just passed a hostname in as the Ansible inventory file. This is an easy way to run Ansible without first having to create an inventory file, you just need to suffix the hostname with a comma so Ansible knows what to do with it.
-
-That's it! You'll now have a Redis server listening on 127.0.0.1 on redis01.example.com. By default, the Redis binaries are installed under /opt/redis, though this can be overridden by setting the `redis_install_dir` variable.
-
-### Master-Slave replication
-
-Configuring [replication](http://redis.io/topics/replication) in Redis is accomplished by deploying multiple nodes, and setting the `redis_slaveof` variable on the slave nodes, just as you would in the redis.conf. In the example that follows, we'll deploy a Redis master with three slaves.
-
-In this example, we're going to use groups to separate the master and slave nodes. Let's start with the inventory file:
-
-``` ini
-[redis-master]
-redis-master.example.com
-
-[redis-slave]
-redis-slave0[1:3].example.com
-```
-
-And here's the playbook:
-
-``` yml
----
-- name: configure the master redis server
-  hosts: redis-master
-  roles:
-    - davidwittman.redis
-
-- name: configure redis slaves
-  hosts: redis-slave
-  vars:
-    - redis_slaveof: redis-master.example.com 6379
-  roles:
-    - davidwittman.redis
-```
-
-In this case, I'm assuming you have DNS records set up for redis-master.example.com, but that's not always the case. You can pretty much go crazy with whatever you need this to be set to. In many cases, I tell Ansible to use the eth1 IP address for the master. Here's a more flexible value for the sake of posterity:
-
-``` yml
-redis_slaveof: "{{ hostvars['redis-master.example.com'].ansible_eth1.ipv4.address }} {{ redis_port }}"
-```
-
-**Note:** You should set `redis_bind: 0.0.0.0` (or other non localhost address) or add `protected-mode no` in the configuration file if used release <= 1.2.8, else   set `redis_protected_mode: "no"`. Otherwise you see in the log: ` Error reply to PING from master: '-DENIED Redis is running in protected mode ...`
-
-Now you're cooking with gas! Running this playbook should have you ready to go with a Redis master and three slaves.
-
-### Redis Sentinel
-
-#### Introduction
-
-Using Master-Slave replication is great for durability and distributing reads and writes, but not so much for high availability. If the master node fails, a slave must be manually promoted to master, and connections will need to be redirected to the new master. The solution for this problem is [Redis Sentinel](http://redis.io/topics/sentinel), a distributed system which uses Redis itself to communicate and handle automatic failover in a Redis cluster.
-
-Sentinel itself uses the same redis-server binary that Redis uses, but runs with the `--sentinel` flag and with a different configuration file. All of this, of course, is abstracted with this Ansible role, but it's still good to know.
-
-#### Configuration
-
-To add a Sentinel node to an existing deployment, assign this same `redis` role to it, and set the variable `redis_sentinel` to True on that particular host. This can be done in any number of ways, and for the purposes of this example I'll extend on the inventory file used above in the Master/Slave configuration:
-
-``` ini
-[redis-master]
-redis-master.example.com
-
-[redis-slave]
-redis-slave0[1:3].example.com
-
-[redis-sentinel]
-redis-sentinel0[1:3].example.com redis_sentinel=True
-```
-
-Above, we've added three more hosts in the **redis-sentinel** group (though this group serves no purpose within the role, it's merely an identifier), and set the `redis_sentinel` variable inline within the inventory file.
-
-Now, all we need to do is set the `redis_sentinel_monitors` variable to define the Redis masters which Sentinel should monitor. In this case, I'm going to do this within the playbook:
-
-``` yml
-- name: configure the master redis server
-  hosts: redis-master
-  roles:
-    - davidwittman.redis
-
-- name: configure redis slaves
-  hosts: redis-slave
-  vars:
-    - redis_slaveof: redis-master.example.com 6379
-  roles:
-    - davidwittman.redis
-
-- name: configure redis sentinel nodes
-  hosts: redis-sentinel
-  vars:
-    - redis_sentinel_monitors:
-      - name: master01
-        host: redis-master.example.com
-        port: 6379
-  roles:
-    - davidwittman.redis
-```
-
-This will configure the Sentinel nodes to monitor the master we created above using the identifier `master01`. By default, Sentinel will use a quorum of 2, which means that at least 2 Sentinels must agree that a master is down in order for a failover to take place. This value can be overridden by setting the `quorum` key within your monitor definition. See the [Sentinel docs](http://redis.io/topics/sentinel) for more details.
-
-Along with the variables listed above, Sentinel has a number of its own configurables just as Redis server does. These are prefixed with `redis_sentinel_`, and are enumerated in the **Role Variables** section below.
-
-### Multiple role inclusions
-
-Should you need to execute the role several times, have a look at `test/test_all.yml` to see how to proceed. See [here](https://github.com/DavidWittman/ansible-redis/issues/133) and [here](https://github.com/DavidWittman/ansible-redis/issues/193) for context.
-
-
-## Advanced Options
-
-### Verifying checksums
-
-Set the `redis_verify_checksum` variable to true to use the checksum verification option for `get_url`. Note that this will only verify checksums when Redis is downloaded from a URL, not when one is provided in a tarball with `redis_tarball`.
-
-When using Ansible 2.x, this role will verify the sha1 checksum of the download against checksums defined in the `redis_checksums` variable in `vars/main.yml`. If your version is not defined in here or you wish to override the checksum with one of your own, simply set the `redis_checksum` variable. As in the example below, you will need to prefix the checksum with the type of hash which you are using.
-
-``` yaml
-- name: install redis on ansible 1.x and verify checksums
-  hosts: all
-  roles:
-    - role: davidwittman.redis
-      redis_version: 3.0.7
-      redis_verify_checksum: true
-      redis_checksum: "sha256:b2a791c4ea3bb7268795c45c6321ea5abcc24457178373e6a6e3be6372737f23"
-```
-
-### Install from local tarball
-
-If the environment your server resides in does not allow downloads (i.e. if the machine is sitting in a dmz) set the variable `redis_tarball` to the path of a locally downloaded Redis tarball to use instead of downloading over HTTP from redis.io.
-
-Do not forget to set the version variable to the same version of the tarball to avoid confusion! For example:
-
-```yml
-vars:
-  redis_version: 2.8.14
-  redis_tarball: /path/to/redis-2.8.14.tar.gz
-```
-
-In this case the source archive is copied to the server over SSH rather than downloaded.
-
-### Install inside restricted environment (e.g. container)
-
-If Redis is to be installed inside a systemctl restricted environment, it might be neccessary to change `vm.overcommit_memory` using other means than this role. In such a case the config key `redis_inside_container` can be defined, which causes the role to skip this setting.
-
-### Building 32 bit binaries
-
-To build 32-bit binaries of Redis (which can be used for [memory optimization](https://redis.io/topics/memory-optimization)), set `redis_make_32bit: true`. This installs the necessary dependencies (x86 glibc) on RHEL/Debian/SuSE and sets the option '32bit' when running make.
-
-### Building with TLS support
-
-To build Redis with [TLS support](https://redis.io/topics/encryption) (Added in version `6`), set `redis_make_tls: true`. This requires OpenSSL development libraries (e.g. libssl-dev on Debian/Ubuntu).
+- Ubuntu
+  - jammy, noble, resolute
+- Debian
+  - bookworm, trixie
+- EL
+  - 9, 10
+- opensuse
+  - all
 
 ## Role Variables
 
-Here is a list of all the default [variables](defaults/main.yml) for this role, which are also available in defaults/main.yml. One of these days I'll format these into a table or something.
+- `redis_appendfilename`
+  - Default: `appendonly.aof`
+  - Description: Filename used for the append-only file.
+  - Type: str
+  - Required: no
 
-``` yml
+- `redis_appendfsync`
+  - Default: `everysec`
+  - Description: fsync policy for the append-only file.
+  - Type: str
+  - Required: no
+
+- `redis_appendonly`
+  - Default: `no`
+  - Description: Enable append-only file persistence.
+  - Type: str
+  - Required: no
+
+- `redis_as_service`
+  - Default: `True`
+  - Description: Configure Redis to run as a service.
+  - Type: bool
+  - Required: no
+
+- `redis_auto_aof_rewrite_min_size`
+  - Default: `64mb`
+  - Description: Minimum append-only file size before automatic rewrite.
+  - Type: str
+  - Required: no
+
+- `redis_auto_aof_rewrite_percentage`
+  - Default: `100`
+  - Description: Append-only file rewrite threshold as a percentage.
+  - Type: str
+  - Required: no
+
+- `redis_bind`
+  - Default: `0.0.0.0`
+  - Description: Address to which Redis binds.
+  - Type: raw
+  - Required: no
+
+- `redis_checksum`
+  - Default: ``
+  - Description: Optional checksum override in algorithm:digest format.
+  - Type: str
+  - Required: no
+
+- `redis_client_output_buffer_limit_normal`
+  - Default: `0 0 0`
+  - Description: Output-buffer limit for normal clients.
+  - Type: str
+  - Required: no
+
+- `redis_client_output_buffer_limit_pubsub`
+  - Default: `32mb 8mb 60`
+  - Description: Output-buffer limit for Pub/Sub clients.
+  - Type: str
+  - Required: no
+
+- `redis_client_output_buffer_limit_slave`
+  - Default: `256mb 64mb 60`
+  - Description: Output-buffer limit for replica clients.
+  - Type: str
+  - Required: no
+
+- `redis_config_additional`
+  - Default: ``
+  - Description: Additional Redis configuration directives.
+  - Type: str
+  - Required: no
+
+- `redis_config_file_name`
+  - Default: `{{ redis_port }}.conf`
+  - Description: Name of the Redis configuration file.
+  - Type: str
+  - Required: no
+
+- `redis_daemonize`
+  - Default: `yes`
+  - Description: Run Redis as a daemon.
+  - Type: str
+  - Required: no
+
+- `redis_databases`
+  - Default: `16`
+  - Description: Number of Redis databases.
+  - Type: int
+  - Required: no
+
+- `redis_db_filename`
+  - Default: `dump.rdb`
+  - Description: Filename used for the RDB backup.
+  - Type: str
+  - Required: no
+
+- `redis_dir`
+  - Default: `/var/lib/redis/{{ redis_port }}`
+  - Description: Working directory used by Redis.
+  - Type: str
+  - Required: no
+
+- `redis_download_url`
+  - Default: `http://download.redis.io/releases/redis-{{ redis_version }}.tar.gz`
+  - Description: URL used to download the Redis source archive.
+  - Type: str
+  - Required: no
+
+- `redis_group`
+  - Default: `{{ redis_user }}`
+  - Description: System group used by the Redis user.
+  - Type: str
+  - Required: no
+
+- `redis_hz`
+  - Default: `10`
+  - Description: Redis internal task frequency in hertz.
+  - Type: int
+  - Required: no
+
+- `redis_install_dir`
+  - Default: `/opt/redis`
+  - Description: Directory where Redis is installed.
+  - Type: str
+  - Required: no
+
+- `redis_install_from_source`
+  - Default: `True`
+  - Description: Install Redis from source instead of a system package.
+  - Type: bool
+  - Required: no
+
+- `redis_local_facts`
+  - Default: `True`
+  - Description: Install local Ansible facts for Redis.
+  - Type: bool
+  - Required: no
+
+- `redis_logfile`
+  - Default: `""`
+  - Description: Redis log file; an empty value logs to standard output.
+  - Type: str
+  - Required: no
+
+- `redis_loglevel`
+  - Default: `notice`
+  - Description: Redis logging verbosity.
+  - Type: str
+  - Required: no
+
+- `redis_lua_time_limit`
+  - Default: `5000`
+  - Description: Maximum execution time for a Lua script in milliseconds.
+  - Type: int
+  - Required: no
+
+- `redis_make_tls`
+  - Default: `False`
+  - Description: Build Redis with TLS support.
+  - Type: bool
+  - Required: no
+
+- `redis_maxclients`
+  - Default: `10000`
+  - Description: Maximum number of simultaneous clients.
+  - Type: int
+  - Required: no
+
+- `redis_maxmemory`
+  - Default: `False`
+  - Description: Maximum Redis memory in a Redis-supported format, or false for no limit.
+  - Type: raw
+  - Required: no
+
+- `redis_maxmemory_policy`
+  - Default: `noeviction`
+  - Description: Key eviction policy used when Redis reaches its memory limit.
+  - Type: str
+  - Required: no
+
+- `redis_min_slaves_max_lag`
+  - Default: `10`
+  - Description: Maximum replica lag in seconds for write availability.
+  - Type: int
+  - Required: no
+
+- `redis_min_slaves_to_write`
+  - Default: `0`
+  - Description: Minimum number of replicas that must be available for writes.
+  - Type: int
+  - Required: no
+
+- `redis_no_appendfsync_on_rewrite`
+  - Default: `no`
+  - Description: Avoid fsync during rewrites when enabled.
+  - Type: str
+  - Required: no
+
+- `redis_nofile_limit`
+  - Default: `16384`
+  - Description: Open-file limit for Redis and Sentinel.
+  - Type: int
+  - Required: no
+
+- `redis_notify_keyspace_events`
+  - Default: `""`
+  - Description: Keyspace notification events to publish.
+  - Type: str
+  - Required: no
+
+- `redis_oom_score_adjust`
+  - Default: `0`
+  - Description: OOM killer score adjustment for Redis.
+  - Type: int
+  - Required: no
+
+- `redis_password`
+  - Default: `False`
+  - Description: Password required to authenticate to Redis.
+  - Type: raw
+  - Required: no
+
+- `redis_pidfile`
+  - Default: `/var/run/redis/{{ redis_port }}.pid`
+  - Description: Path to the Redis process ID file.
+  - Type: str
+  - Required: no
+
+- `redis_port`
+  - Default: `6379`
+  - Description: TCP port on which Redis listens.
+  - Type: int
+  - Required: no
+
+- `redis_rdbchecksum`
+  - Default: `yes`
+  - Description: Add checksums to RDB files.
+  - Type: str
+  - Required: no
+
+- `redis_rdbcompression`
+  - Default: `yes`
+  - Description: Compress RDB files.
+  - Type: str
+  - Required: no
+
+- `redis_rename_commands`
+  - Default: `[]`
+  - Description: Redis commands to rename or disable, in command and replacement pairs.
+  - Type: list of 'str'
+  - Required: no
+
+- `redis_repl_backlog_size`
+  - Default: `False`
+  - Description: Replication backlog size, or false to use the Redis default.
+  - Type: raw
+  - Required: no
+
+- `redis_save`
+  - Default: `['900 1', '300 10', '60 10000']`
+  - Description: RDB snapshot save rules.
+  - Type: list of 'str'
+  - Required: no
+
+- `redis_sentinel`
+  - Default: `False`
+  - Description: Configure this host as a Redis Sentinel.
+  - Type: bool
+  - Required: no
+
+- `redis_sentinel_bind`
+  - Default: `0.0.0.0`
+  - Description: Address to which Sentinel binds.
+  - Type: str
+  - Required: no
+
+- `redis_sentinel_dir`
+  - Default: `/var/lib/redis/sentinel_{{ redis_sentinel_port }}`
+  - Description: Working directory used by Sentinel.
+  - Type: str
+  - Required: no
+
+- `redis_sentinel_logfile`
+  - Default: `""`
+  - Description: Sentinel log file; an empty value logs to standard output.
+  - Type: str
+  - Required: no
+
+- `redis_sentinel_monitors`
+  - Default: `[{'name': 'primary01', 'host': 'localhost', 'port': 6379, 'quorum': 2, 'auth_pass': 'ant1r3z', 'down_after_milliseconds': 30000, 'parallel_syncs': 1, 'failover_timeout': 180000, 'notification_script': False, 'client_reconfig_script': False, 'rename_commands': []}]`
+  - Description: Sentinel primary instances to monitor and their failover settings.
+  - Type: list of 'dict'
+  - Required: no
+
+- `redis_sentinel_oom_score_adjust`
+  - Default: `0`
+  - Description: OOM killer score adjustment for Sentinel.
+  - Type: int
+  - Required: no
+
+- `redis_sentinel_pidfile`
+  - Default: `/var/run/redis/sentinel_{{ redis_sentinel_port }}.pid`
+  - Description: Path to the Sentinel process ID file.
+  - Type: str
+  - Required: no
+
+- `redis_sentinel_port`
+  - Default: `26379`
+  - Description: TCP port on which Sentinel listens.
+  - Type: int
+  - Required: no
+
+- `redis_sentinel_syslog_ident`
+  - Default: `sentinel_{{ redis_sentinel_port }}`
+  - Description: Identifier used for Sentinel syslog messages.
+  - Type: str
+  - Required: no
+
+- `redis_server`
+  - Default: `True`
+  - Description: Install and configure the Redis server.
+  - Type: bool
+  - Required: no
+
+- `redis_service_name`
+  - Default: `redis_{{ redis_port }}`
+  - Description: Name of the Redis service.
+  - Type: str
+  - Required: no
+
+- `redis_slave_priority`
+  - Default: `100`
+  - Description: Replica priority used during failover.
+  - Type: int
+  - Required: no
+
+- `redis_slave_read_only`
+  - Default: `yes`
+  - Description: Whether replicas reject write commands.
+  - Type: str
+  - Required: no
+
+- `redis_slaveof`
+  - Default: `False`
+  - Description: Replication primary in host port format, or false to disable replication.
+  - Type: raw
+  - Required: no
+
+- `redis_slowlog_log_slower_than`
+  - Default: `10000`
+  - Description: Slow-log queries taking longer than this many microseconds.
+  - Type: int
+  - Required: no
+
+- `redis_slowlog_max_len`
+  - Default: `128`
+  - Description: Maximum number of slow-log entries to retain.
+  - Type: int
+  - Required: no
+
+- `redis_socket_path`
+  - Default: `False`
+  - Description: Unix socket path, or false to disable the socket.
+  - Type: raw
+  - Required: no
+
+- `redis_socket_perm`
+  - Default: `755`
+  - Description: Permissions for the Unix socket.
+  - Type: int
+  - Required: no
+
+- `redis_stop_writes_on_bgsave_error`
+  - Default: `yes`
+  - Description: Stop writes when a background save fails.
+  - Type: str
+  - Required: no
+
+- `redis_syslog_enabled`
+  - Default: `yes`
+  - Description: Enable Redis syslog logging.
+  - Type: str
+  - Required: no
+
+- `redis_syslog_facility`
+  - Default: `USER`
+  - Description: Syslog facility used by Redis.
+  - Type: str
+  - Required: no
+
+- `redis_syslog_ident`
+  - Default: `{{ redis_service_name }}`
+  - Description: Identifier used for Redis syslog messages.
+  - Type: str
+  - Required: no
+
+- `redis_tarball`
+  - Default: `False`
+  - Description: Local source archive path, or false to download the archive.
+  - Type: raw
+  - Required: no
+
+- `redis_tcp_backlog`
+  - Default: `511`
+  - Description: TCP listen backlog for Redis.
+  - Type: int
+  - Required: no
+
+- `redis_tcp_keepalive`
+  - Default: `0`
+  - Description: TCP keepalive interval in seconds.
+  - Type: int
+  - Required: no
+
+- `redis_timeout`
+  - Default: `0`
+  - Description: Client idle timeout in seconds; zero disables the timeout.
+  - Type: int
+  - Required: no
+
+- `redis_user`
+  - Default: `redis`
+  - Description: System user that runs Redis.
+  - Type: str
+  - Required: no
+
+- `redis_verify_checksum`
+  - Default: `False`
+  - Description: Retrieve and verify the source archive checksum.
+  - Type: bool
+  - Required: no
+
+- `redis_version`
+  - Default: `2.8.24`
+  - Description: Redis version to install.
+  - Type: str
+  - Required: no
+
+
+## Dependencies
+
+None.
+
+## Requirements
+
+Source builds on Red Hat-family and SUSE systems require `gcc`, `gcc-c++`, and `make`,
+which the role installs automatically.
+
+The role requires the following Ansible collections:
+
+```yaml
 ---
-## Installation options
-redis_version: 2.8.24
-redis_install_dir: /opt/redis
-redis_dir: /var/lib/redis/{{ redis_port }}
-redis_config_file_name: "{{ redis_port }}.conf"
-redis_download_url: "http://download.redis.io/releases/redis-{{ redis_version }}.tar.gz"
+collections:
+  - name: ansible.posix
+  - name: community.general
 
-redis_protected_mode: "yes"
-# Set this to true to validate redis tarball checksum against vars/main.yml
-redis_verify_checksum: false
-# Set this value to a local path of a tarball to use for installation instead of downloading
-redis_tarball: false
-# Set this to true to build 32-bit binaries of Redis
-redis_make_32bit: false
-# Set this to true to build redis with TLS support, available only for versions >= 6 (require OpenSSL development libraries)
-redis_make_tls: false
+```
 
-redis_user: redis
-redis_group: "{{ redis_user }}"
+```bash
+ansible-galaxy collection install -r requirements.yml
+```
 
-# The open file limit for Redis/Sentinel
-redis_nofile_limit: 16384
-redis_oom_score_adjust: 0
+## Getting Started
 
-## Role options
-# Configure Redis as a service
-# This creates the init scripts for Redis and ensures the process is running
-# Also applies for Redis Sentinel
-redis_as_service: true
-# Add local facts to /etc/ansible/facts.d for Redis
-redis_local_facts: true
-# Service name
-redis_service_name: "redis_{{ redis_port }}"
+### Single Redis node
 
-## Networking/connection options
-redis_bind: false
-redis_port: 6379
-redis_password: false
-# Slave replication options
-redis_min_slaves_to_write: 0
-redis_min_slaves_max_lag: 10
-redis_tcp_backlog: 511
-redis_tcp_keepalive: 0
-# Max connected clients at a time
-redis_maxclients: 10000
-redis_timeout: 0
-# Socket options
-# Set socket_path to the desired path to the socket. E.g. /var/run/redis/{{ redis_port }}.sock
-redis_socket_path: false
-redis_socket_perm: 755
+```yaml
+- hosts: all
+  vars:
+    redis_version: 8.10.3
+    redis_bind: 127.0.0.1
+  roles:
+    - telekom_mms.redis
+```
 
-## Replication options
-# Set slaveof just as you would in redis.conf. (e.g. "redis01 6379")
-redis_slaveof: false
-# Make slaves read-only. "yes" or "no"
-redis_slave_read_only: "yes"
-redis_slave_priority: 100
-redis_repl_backlog_size: false
+### Primary-Replica Replication
 
-## Logging
-redis_logfile: '""'
-# Enable syslog. "yes" or "no"
-redis_syslog_enabled: "yes"
-redis_syslog_ident: "{{ redis_service_name }}"
-# Syslog facility. Must be USER or LOCAL0-LOCAL7
-redis_syslog_facility: USER
+Configuring [replication](http://redis.io/topics/replication) in Redis is accomplished by deploying multiple nodes and setting the `redis_slaveof` variable on the replica nodes, just as you would in the redis.conf. In the example that follows, we'll deploy a Redis primary with three replicas.
 
-## General configuration
-redis_daemonize: "yes"
-redis_pidfile: /var/run/redis/{{ redis_port }}.pid
-# Number of databases to allow
-redis_databases: 16
-redis_loglevel: notice
-# Log queries slower than this many milliseconds. -1 to disable
-redis_slowlog_log_slower_than: 10000
-# Maximum number of slow queries to save
-redis_slowlog_max_len: 128
-# Redis memory limit (e.g. 4294967296, 4096mb, 4gb)
-redis_maxmemory: false
-redis_maxmemory_policy: noeviction
-redis_rename_commands: []
+``` ini
+[redis-primary]
+redis-primary
 
-# Lua script time limit
-redis_lua_time_limit: 5000
+[redis-replica]
+redis-replica0[1:3]
+```
 
-# the file name for the RDB Backup
-redis_db_filename: "dump.rdb"
+```yaml
+- hosts: redis-primary
+  vars:
+    redis_version: 8.10.3
+  roles:
+    - telekom_mms.redis
+```
 
-# How frequently to snapshot the database to disk
-# e.g. "900 1" => 900 seconds if at least 1 key changed
-redis_save:
-  - 900 1
-  - 300 10
-  - 60 10000
-redis_stop_writes_on_bgsave_error: "yes"
-redis_rdbcompression: "yes"
-redis_rdbchecksum: "yes"
-redis_appendonly: "no"
-redis_appendfilename: "appendonly.aof"
-redis_appendfsync: "everysec"
-redis_no_appendfsync_on_rewrite: "no"
-redis_auto_aof_rewrite_percentage: "100"
-redis_auto_aof_rewrite_min_size: "64mb"
-redis_notify_keyspace_events: '""'
+```yaml
+- hosts: redis-replica
+  vars:
+    redis_version: 8.10.3
+    redis_bind: 0.0.0.0
+    redis_slaveof: redis-primary 6379
+  roles:
+    - telekom_mms.redis
+```
 
-redis_client_output_buffer_limit_normal: 0 0 0
-redis_client_output_buffer_limit_slave: 256mb 64mb 60
-redis_client_output_buffer_limit_pubsub: 32mb 8mb 60
+This setup assumes that you have DNS records for `redis-primary` and `redis-replica` nodes. To be more flexible you can define something like this:
 
-redis_hz: 10
+```yaml
 
-## Additional configuration options
-# leave empty if not required. Use a block style scalar to add options, e.g.
-# redis_config_additional: |
-#   io-threads 4
-#   io-threads-do-reads yes
-redis_config_additional: ""
+redis_slaveof: "{{ hostvars['redis-primary'].ansible_facts.default_ipv4.address }} {{ redis_port }}"
 
-## Redis sentinel configs
-# Set this to true on a host to configure it as a Sentinel
-redis_sentinel: false
-redis_sentinel_protected_mode: "yes"
-redis_sentinel_dir: /var/lib/redis/sentinel_{{ redis_sentinel_port }}
-redis_sentinel_bind: 0.0.0.0
-redis_sentinel_port: 26379
-redis_sentinel_password: false
-redis_sentinel_pidfile: /var/run/redis/sentinel_{{ redis_sentinel_port }}.pid
-redis_sentinel_logfile: '""'
-redis_sentinel_syslog_ident: sentinel_{{ redis_sentinel_port }}
-redis_sentinel_oom_score_adjust: 0
-redis_sentinel_monitors:
-  - name: master01
-    host: localhost
-    port: 6379
-    quorum: 2
-    auth_pass: ant1r3z
-    down_after_milliseconds: 30000
-    parallel_syncs: 1
-    failover_timeout: 180000
-    notification_script: false
-    client_reconfig_script: false
-    rename_commands: []
+```
+
+Running this playbooks will set up a Redis primary with three replicas, using the specified `redis_slaveof` configuration to establish replication.
+
+### Redis Sentinel
+
+Primary-replica replication is useful for durability and distributing reads and writes, but by itself does not provide high availability. If the primary fails, a replica must be promoted and connections redirected to the new primary. [Redis Sentinel](http://redis.io/topics/sentinel) provides automatic failover in a Redis deployment.
+
+Sentinel itself uses the same redis-server binary that Redis uses, but runs with the `--sentinel` flag and with a different configuration file.
+
+```yaml
+- hosts: redis-sentinel-primary
+  vars:
+    redis_version: 8.10.3
+    redis_bind: 0.0.0.0
+    redis_sentinel: true
+    redis_sentinel_monitors:
+      - name: primary
+        host: redis-sentinel-primary
+        port: 6379
+        down_after_milliseconds: 10000
+    redis_sentinel_config_additional: |
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+  roles:
+    - telekom_mms.redis
+```
+
+```yaml
+- hosts: redis-sentinel-replica
+  vars:
+    redis_version: 8.10.3
+    redis_bind: 0.0.0.0
+    redis_slaveof: redis-sentinel-primary 6379
+    redis_sentinel: true
+    redis_sentinel_monitors:
+      - name: primary
+        host: redis-sentinel-primary
+        port: 6379
+        down_after_milliseconds: 10000
+    redis_sentinel_config_additional: |
+      sentinel resolve-hostnames yes
+      sentinel announce-hostnames yes
+  roles:
+    - telekom_mms.redis
+```
+
+This playbook sets up Redis with Sentinel for high availability, ensuring that if the primary node fails, a replica can be promoted automatically. It is recommended to have at least three Sentinel nodes to achieve a quorum for failover decisions.
+
+For more information on Redis Sentinel, refer to the [official Redis Sentinel documentation](http://redis.io/topics/sentinel).
+
+## Install from local tarball
+
+To install Redis from a local tarball, set the `redis_tarball` variable to the path of the tarball file. For example:
+
+```yaml
+- hosts: redis
+  vars:
+    redis_version: 8.10.3
+
+    redis_tarball: /path/to/redis-{{ redis_version }}.tar.gz
+
+  roles:
+    - telekom_mms.redis
+```
+
+## Install inside restricted environments (e.g. containerized environments)
+
+If Redis is to be installed inside a systemctl restricted environment, it might be neccessary to change `vm.overcommit_memory` using other means than this role. In such a case the config key `redis_inside_container` can be defined, which causes the role to skip this setting.
+
+## Building with TLS support
+
+To build Redis with TLS support, set the `redis_make_tls` variable to `true`. Note that this requires OpenSSL development libraries to be available on the system.
+
+```yaml
+- hosts: redis
+  vars:
+    redis_version: 8.10.3
+    redis_make_tls: true
+  roles:
+    - telekom_mms.redis
 ```
 
 ## Facts
 
 The following facts are accessible in your inventory or tasks outside of this role.
+
 
 - `{{ ansible_local.redis.bind }}`
 - `{{ ansible_local.redis.port }}`
@@ -356,4 +639,28 @@ The following facts are accessible in your inventory or tasks outside of this ro
 - `{{ ansible_local.redis.sentinel_port }}`
 - `{{ ansible_local.redis.sentinel_monitors }}`
 
+
 To disable these facts, set `redis_local_facts` to a false value.
+
+## Author Information
+
+- David Wittman
+- rndmh3ro
+- beechesII
+
+## License
+
+MIT
+
+## Testing
+
+Run `molecule test -s single_node`, `molecule test -s primary_replica`, or
+`molecule test -s sentinel`. Running `molecule test` without a scenario uses
+`default`, an entry point for the single-node test.
+
+Set `REDIS_VERSION`, `REDIS_MAKE_TLS`, and `MOLECULE_IMAGE` to select the build
+and container image. `REDIS_MAKE_TLS` enables TLS compilation, not encrypted
+connections. Multi-container tests disable Redis protected mode only on their
+isolated Docker networks; no Redis ports are published to the host.
+
+<!-- END_ANSIBLE_DOCS -->

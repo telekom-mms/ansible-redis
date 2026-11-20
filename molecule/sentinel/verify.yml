@@ -1,0 +1,30 @@
+---
+- name: Verify Sentinel services
+  hosts: redis-sentinel-1,redis-sentinel-2
+  tasks:
+    - name: Wait for Sentinel to respond
+      ansible.builtin.command: /opt/redis/bin/redis-cli -p 26379 ping
+      register: sentinel_ping
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: sentinel_ping.stdout == "PONG"
+
+    - name: Wait for Sentinel to see a healthy primary
+      ansible.builtin.command: /opt/redis/bin/redis-cli -p 26379 info sentinel
+      register: sentinel_primary
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: "'name=primary01,status=ok,' in sentinel_primary.stdout"
+
+- name: Verify Sentinel quorum
+  hosts: redis-sentinel-1
+  tasks:
+    - name: Wait for quorum to become available
+      ansible.builtin.command: /opt/redis/bin/redis-cli -p 26379 sentinel ckquorum primary01
+      register: sentinel_quorum
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: sentinel_quorum.rc == 0 and sentinel_quorum.stdout.startswith("OK")

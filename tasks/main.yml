@@ -1,7 +1,4 @@
 ---
-- name: Check vars
-  ansible.builtin.include_tasks: check_vars.yml
-
 - name: Download Redis tarball
   when: redis_install_from_source
   ansible.builtin.include_tasks: download.yml

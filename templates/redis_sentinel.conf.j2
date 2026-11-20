@@ -1,11 +1,11 @@
 # redis-sentinel {{ redis_version }} volatile configuration file
 # sentinel_{{ redis_sentinel_port }}.conf
 
-{% for master in redis_sentinel_monitors -%}
-sentinel monitor {{ master.name }} {{ master.host }} {{ master.port }} {{ master.quorum|d('2') }}
+{% for primary in redis_sentinel_monitors -%}
+sentinel monitor {{ primary.name }} {{ primary.host }} {{ primary.port }} {{ primary.quorum|d('2') }}
 {% for option in ('auth_pass', 'down_after_milliseconds', 'parallel_syncs', 'failover_timeout', 'notification_script', 'client_reconfig_script') -%}
-{% if master[option] is defined and master[option] -%}
-sentinel {{ option|replace('_', '-') }} {{ master.name }} {{ master[option] }}
+{% if primary[option] is defined and primary[option] -%}
+sentinel {{ option|replace('_', '-') }} {{ primary.name }} {{ primary[option] }}
 {% endif %}
 {% endfor -%}
 {% endfor -%}

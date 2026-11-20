@@ -1,0 +1,36 @@
+---
+- name: Write a value on the primary
+  hosts: redis-primary
+  tasks:
+    - name: Wait for the replica to connect
+      ansible.builtin.command: /opt/redis/bin/redis-cli info replication
+      register: primary_replication
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: "'connected_slaves:1' in primary_replication.stdout_lines"
+
+    - name: Set replication test value
+      ansible.builtin.command: /opt/redis/bin/redis-cli set molecule_replication_test ready
+      register: primary_write
+      changed_when: false
+      failed_when: primary_write.rc != 0 or primary_write.stdout != "OK"
+
+- name: Verify the replica received the value
+  hosts: redis-replica
+  tasks:
+    - name: Wait for the replication link
+      ansible.builtin.command: /opt/redis/bin/redis-cli info replication
+      register: replica_link
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: "'master_link_status:up' in replica_link.stdout_lines"
+
+    - name: Wait for replication
+      ansible.builtin.command: /opt/redis/bin/redis-cli get molecule_replication_test
+      register: replica_value
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: replica_value.stdout == "ready"

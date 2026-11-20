@@ -1,0 +1,74 @@
+---
+name: Molecule
+
+on:
+  push:
+    branches:
+      - master
+      - main
+  pull_request:
+    branches:
+      - master
+      - main
+  schedule:
+    - cron: "0 8 * * 1"
+
+jobs:
+  molecule:
+    name: Molecule - Redis ${{ matrix.redis_version }} - ${{ matrix.os }} - TLS ${{ matrix.redis_make_tls }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        os:
+          - debian12
+          - debian13
+          - ubuntu2204
+          - ubuntu2404
+          - ubuntu2604
+          - rockylinux9
+          - rockylinux10
+          - opensuseleap16
+        redis_version:
+          - "7.2.17"
+          - "7.4.12"
+          - "8.2.11"
+          - "8.4.8"
+          - "8.6.8"
+          - "8.8.4"
+          - "8.10.3"
+        redis_make_tls: [false, true]
+    steps:
+      - name: Check out code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: 3.14
+
+      - name: Install dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install -r requirements.txt
+
+      - name: Install Ansible collections
+        run: ansible-galaxy collection install -r requirements.yml
+
+      - name: Test role with molecule
+        run: |
+          result=0
+          for scenario in single_node sentinel primary_replica; do
+            if ! molecule test --scenario-name "$scenario"; then
+              result=1
+            fi
+          done
+          exit "$result"
+        env:
+          PY_COLORS: "1"
+          ANSIBLE_FORCE_COLOR: "1"
+          ANSIBLE_ROLES_PATH: ${{ github.workspace }}/..
+          MOLECULE_IMAGE: geerlingguy/docker-${{ matrix.os }}-ansible:latest
+          REDIS_VERSION: "${{ matrix.redis_version }}"
+          REDIS_MAKE_TLS: "${{ matrix.redis_make_tls }}"

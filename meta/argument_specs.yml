@@ -1,0 +1,334 @@
+---
+argument_specs:
+  main:
+    short_description: Configure a Redis server
+    description:
+      - Install and configure Redis using the role's Redis settings.
+    options:
+      redis_version:
+        type: str
+        default: "2.8.24"
+        description: Redis version to install.
+      redis_install_dir:
+        type: str
+        default: /opt/redis
+        description: Directory where Redis is installed.
+      redis_install_from_source:
+        type: bool
+        default: true
+        description: Install Redis from source instead of a system package.
+      redis_dir:
+        type: str
+        default: /var/lib/redis/{{ redis_port }}
+        description: Working directory used by Redis.
+      redis_config_file_name:
+        type: str
+        default: "{{ redis_port }}.conf"
+        description: Name of the Redis configuration file.
+      redis_download_url:
+        type: str
+        default: "http://download.redis.io/releases/redis-{{ redis_version }}.tar.gz"
+        description: URL used to download the Redis source archive.
+      redis_verify_checksum:
+        type: bool
+        default: false
+        description: Retrieve and verify the source archive checksum.
+      redis_tarball:
+        type: raw
+        default: false
+        description: Local source archive path, or false to download the archive.
+      redis_make_tls:
+        type: bool
+        default: false
+        description: Build Redis with TLS support.
+      redis_user:
+        type: str
+        default: redis
+        description: System user that runs Redis.
+      redis_group:
+        type: str
+        default: "{{ redis_user }}"
+        description: System group used by the Redis user.
+      redis_nofile_limit:
+        type: int
+        default: 16384
+        description: Open-file limit for Redis and Sentinel.
+      redis_oom_score_adjust:
+        type: int
+        default: 0
+        description: OOM killer score adjustment for Redis.
+      redis_server:
+        type: bool
+        default: true
+        description: Install and configure the Redis server.
+      redis_as_service:
+        type: bool
+        default: true
+        description: Configure Redis to run as a service.
+      redis_local_facts:
+        type: bool
+        default: true
+        description: Install local Ansible facts for Redis.
+      redis_service_name:
+        type: str
+        default: "redis_{{ redis_port }}"
+        description: Name of the Redis service.
+      redis_bind:
+        type: raw
+        default: 0.0.0.0
+        description: Address to which Redis binds.
+      redis_port:
+        type: int
+        default: 6379
+        description: TCP port on which Redis listens.
+      redis_password:
+        type: raw
+        default: false
+        no_log: true
+        description: Password required to authenticate to Redis.
+      redis_checksum:
+        type: str
+        description: Optional checksum override in algorithm:digest format.
+      redis_min_slaves_to_write:
+        type: int
+        default: 0
+        description: Minimum number of replicas that must be available for writes.
+      redis_min_slaves_max_lag:
+        type: int
+        default: 10
+        description: Maximum replica lag in seconds for write availability.
+      redis_tcp_backlog:
+        type: int
+        default: 511
+        description: TCP listen backlog for Redis.
+      redis_tcp_keepalive:
+        type: int
+        default: 0
+        description: TCP keepalive interval in seconds.
+      redis_maxclients:
+        type: int
+        default: 10000
+        description: Maximum number of simultaneous clients.
+      redis_timeout:
+        type: int
+        default: 0
+        description: Client idle timeout in seconds; zero disables the timeout.
+      redis_socket_path:
+        type: raw
+        default: false
+        description: Unix socket path, or false to disable the socket.
+      redis_socket_perm:
+        type: int
+        default: 755
+        description: Permissions for the Unix socket.
+      redis_slaveof:
+        type: raw
+        default: false
+        description: Replication primary in host port format, or false to disable replication.
+      redis_slave_read_only:
+        type: str
+        default: "yes"
+        description: Whether replicas reject write commands.
+      redis_slave_priority:
+        type: int
+        default: 100
+        description: Replica priority used during failover.
+      redis_repl_backlog_size:
+        type: raw
+        default: false
+        description: Replication backlog size, or false to use the Redis default.
+      redis_logfile:
+        type: str
+        default: '""'
+        description: Redis log file; an empty value logs to standard output.
+      redis_syslog_enabled:
+        type: str
+        default: "yes"
+        description: Enable Redis syslog logging.
+      redis_syslog_ident:
+        type: str
+        default: "{{ redis_service_name }}"
+        description: Identifier used for Redis syslog messages.
+      redis_syslog_facility:
+        type: str
+        default: USER
+        description: Syslog facility used by Redis.
+      redis_daemonize:
+        type: str
+        default: "yes"
+        description: Run Redis as a daemon.
+      redis_pidfile:
+        type: str
+        default: /var/run/redis/{{ redis_port }}.pid
+        description: Path to the Redis process ID file.
+      redis_databases:
+        type: int
+        default: 16
+        description: Number of Redis databases.
+      redis_loglevel:
+        type: str
+        default: notice
+        choices:
+          - debug
+          - verbose
+          - notice
+          - warning
+        description: Redis logging verbosity.
+      redis_slowlog_log_slower_than:
+        type: int
+        default: 10000
+        description: Slow-log queries taking longer than this many microseconds.
+      redis_slowlog_max_len:
+        type: int
+        default: 128
+        description: Maximum number of slow-log entries to retain.
+      redis_maxmemory:
+        type: raw
+        default: false
+        description: Maximum Redis memory in a Redis-supported format, or false for no limit.
+      redis_maxmemory_policy:
+        type: str
+        default: noeviction
+        choices:
+          - noeviction
+          - allkeys-lru
+          - volatile-lru
+          - allkeys-random
+          - volatile-random
+          - volatile-ttl
+          - allkeys-lfu
+          - volatile-lfu
+        description: Key eviction policy used when Redis reaches its memory limit.
+      redis_rename_commands:
+        type: list
+        elements: str
+        default: []
+        description: Redis commands to rename or disable, in command and replacement pairs.
+      redis_lua_time_limit:
+        type: int
+        default: 5000
+        description: Maximum execution time for a Lua script in milliseconds.
+      redis_db_filename:
+        type: str
+        default: dump.rdb
+        description: Filename used for the RDB backup.
+      redis_save:
+        type: list
+        elements: str
+        default:
+          - 900 1
+          - 300 10
+          - 60 10000
+        description: RDB snapshot save rules.
+      redis_stop_writes_on_bgsave_error:
+        type: str
+        default: "yes"
+        description: Stop writes when a background save fails.
+      redis_rdbcompression:
+        type: str
+        default: "yes"
+        description: Compress RDB files.
+      redis_rdbchecksum:
+        type: str
+        default: "yes"
+        description: Add checksums to RDB files.
+      redis_appendonly:
+        type: str
+        default: "no"
+        description: Enable append-only file persistence.
+      redis_appendfilename:
+        type: str
+        default: appendonly.aof
+        description: Filename used for the append-only file.
+      redis_appendfsync:
+        type: str
+        default: everysec
+        choices:
+          - always
+          - everysec
+          - no
+        description: fsync policy for the append-only file.
+      redis_no_appendfsync_on_rewrite:
+        type: str
+        default: "no"
+        description: Avoid fsync during rewrites when enabled.
+      redis_auto_aof_rewrite_percentage:
+        type: str
+        default: "100"
+        description: Append-only file rewrite threshold as a percentage.
+      redis_auto_aof_rewrite_min_size:
+        type: str
+        default: 64mb
+        description: Minimum append-only file size before automatic rewrite.
+      redis_notify_keyspace_events:
+        type: str
+        default: '""'
+        description: Keyspace notification events to publish.
+      redis_client_output_buffer_limit_normal:
+        type: str
+        default: 0 0 0
+        description: Output-buffer limit for normal clients.
+      redis_client_output_buffer_limit_slave:
+        type: str
+        default: 256mb 64mb 60
+        description: Output-buffer limit for replica clients.
+      redis_client_output_buffer_limit_pubsub:
+        type: str
+        default: 32mb 8mb 60
+        description: Output-buffer limit for Pub/Sub clients.
+      redis_hz:
+        type: int
+        default: 10
+        description: Redis internal task frequency in hertz.
+      redis_config_additional:
+        type: str
+        default: ""
+        description: Additional Redis configuration directives.
+      redis_sentinel:
+        type: bool
+        default: false
+        description: Configure this host as a Redis Sentinel.
+      redis_sentinel_dir:
+        type: str
+        default: /var/lib/redis/sentinel_{{ redis_sentinel_port }}
+        description: Working directory used by Sentinel.
+      redis_sentinel_bind:
+        type: str
+        default: 0.0.0.0
+        description: Address to which Sentinel binds.
+      redis_sentinel_port:
+        type: int
+        default: 26379
+        description: TCP port on which Sentinel listens.
+      redis_sentinel_pidfile:
+        type: str
+        default: /var/run/redis/sentinel_{{ redis_sentinel_port }}.pid
+        description: Path to the Sentinel process ID file.
+      redis_sentinel_logfile:
+        type: str
+        default: '""'
+        description: Sentinel log file; an empty value logs to standard output.
+      redis_sentinel_syslog_ident:
+        type: str
+        default: sentinel_{{ redis_sentinel_port }}
+        description: Identifier used for Sentinel syslog messages.
+      redis_sentinel_oom_score_adjust:
+        type: int
+        default: 0
+        description: OOM killer score adjustment for Sentinel.
+      redis_sentinel_monitors:
+        type: list
+        elements: dict
+        default:
+          - name: primary01
+            host: localhost
+            port: 6379
+            quorum: 2
+            auth_pass: ant1r3z
+            down_after_milliseconds: 30000
+            parallel_syncs: 1
+            failover_timeout: 180000
+            notification_script: false
+            client_reconfig_script: false
+            rename_commands: []
+        description: Sentinel primary instances to monitor and their failover settings.

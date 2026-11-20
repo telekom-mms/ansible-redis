@@ -1,0 +1,7 @@
+---
+
+exclude_paths:
+  - meta/argument_specs.yml
+
+skip_list:
+  - yaml[line-length]

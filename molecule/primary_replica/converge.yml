@@ -1,0 +1,15 @@
+---
+- name: Converge
+  hosts: all
+  vars:
+    redis_version: "{{ lookup('env', 'REDIS_VERSION') | default('7.2.17', true) }}"
+    redis_make_tls: "{{ lookup('env', 'REDIS_MAKE_TLS') | default('false', true) | bool }}"
+    redis_bind: "0.0.0.0"
+    redis_config_additional: |
+      protected-mode no
+    redis_slaveof: "{{ 'redis-primary 6379' if inventory_hostname == 'redis-replica' else false }}"
+    redis_inside_container: true
+  tasks:
+    - name: Apply Redis role
+      ansible.builtin.include_role:
+        name: "{{ lookup('env', 'MOLECULE_PROJECT_DIRECTORY') | basename }}"

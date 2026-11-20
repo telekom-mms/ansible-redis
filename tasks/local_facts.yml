@@ -1,9 +1,11 @@
-- name: create facts directory
-  file:
+- name: Create facts directory
+  ansible.builtin.file:
     path: /etc/ansible/facts.d
     state: directory
+    mode: "0755"
 
-- name: create redis facts
-  template:
+- name: Create redis facts
+  ansible.builtin.template:
     src: etc/ansible/facts.d/redis.fact.j2
     dest: /etc/ansible/facts.d/redis.fact
+    mode: "0644"

@@ -1,162 +1,171 @@
 ---
-- name: create redis working directory
-  file:
+- name: Create redis working directory
+  ansible.builtin.file:
     path: "{{ redis_dir }}"
     state: directory
-    recurse: yes
+    recurse: true
     owner: "{{ redis_user }}"
 
-- name: create redis init script
-  template:
+- name: Create redis init script
+  when:
+    - redis_as_service
+    - ansible_facts['service_mgr'] | default() != "systemd"
+    - not (not redis_install_from_source and redis_service_name == 'redis')
+  ansible.builtin.template:
     src: "{{ item }}"
     dest: /etc/init.d/{{ redis_service_name }}
-    mode: 0755
+    mode: "0755"
   # Choose the distro-specific template. We must specify the templates
   # path here because with_first_found tries to find files in files/
   with_first_found:
     - files:
-      - "{{ ansible_os_family }}/redis.init.j2"
-      - default/redis.init.j2
+        - "{{ ansible_facts['os_family'] }}/redis.init.j2"
+        - default/redis.init.j2
       paths:
         - ../templates
-  when: redis_as_service and ansible_service_mgr|default() != "systemd" and not (not redis_install_from_source and redis_service_name == 'redis')
 
-- name: create redis systemd service
-  template:
+- name: Create redis systemd service
+  when:
+    - redis_as_service
+    - ansible_facts['service_mgr'] | default() == "systemd"
+    - not (not redis_install_from_source and redis_service_name == 'redis')
+  ansible.builtin.template:
     src: "{{ item }}"
     dest: /etc/systemd/system/{{ redis_service_name }}.service
-    mode: 0644
+    mode: "0644"
   with_first_found:
     - files:
-      - "{{ ansible_os_family }}/redis.service.j2"
-      - default/redis.service.j2
+        - "{{ ansible_facts['os_family'] }}/redis.service.j2"
+        - default/redis.service.j2
       paths:
         - ../templates
   register: redis_unit_file
-  when: redis_as_service and ansible_service_mgr|default() == "systemd" and not (not redis_install_from_source and redis_service_name == 'redis')
 
-- name: create systemd tmpfiles configuration
-  template:
-    src: etc/tmpfiles.d/redis.conf.j2
-    dest: /etc/tmpfiles.d/redis.conf
-    mode: 0644
+- name: Create systemd tmpfiles configuration
   when:
     - redis_as_service
-    - ansible_service_mgr|default() == 'systemd'
+    - ansible_facts['service_mgr'] | default() == 'systemd'
     - (redis_pidfile|dirname).startswith('/var/run') or (redis_pidfile|dirname).startswith('/run')
     - not (not redis_install_from_source and redis_service_name == 'redis')
+  ansible.builtin.template:
+    src: etc/tmpfiles.d/redis.conf.j2
+    dest: /etc/tmpfiles.d/redis.conf
+    mode: "0644"
 
-- name: reload systemd daemon
-  systemd:
-    daemon_reload: true
+- name: Reload systemd daemon
   when:
     - redis_as_service
-    - ansible_service_mgr|default() == "systemd"
+    - ansible_facts['service_mgr'] | default() == "systemd"
     - redis_unit_file is changed
+  ansible.builtin.systemd:
+    daemon_reload: true
 
-- name: set redis to start at boot
-  service:
-    name: "{{ redis_service_name }}"
-    enabled: yes
+- name: Set redis to start at boot
   when: redis_as_service
+  ansible.builtin.service:
+    name: "{{ redis_service_name }}"
+    enabled: true
 
 # Check then create log dir to prevent aggressively overwriting permissions
-- name: check if log directory exists
-  stat:
-    path: "{{ redis_logfile|dirname }}"
+- name: Check if log directory exists
+  when: redis_logfile != '""'
+  ansible.builtin.stat:
+    path: "{{ redis_logfile | dirname }}"
   register: logdir
   changed_when: false
-  when: redis_logfile != '""'
 
-- name: create log directory if it does not exist
-  file:
-    state: directory
-    path: "{{ redis_logfile|dirname }}"
-    owner: "{{ redis_user }}"
-    group: "{{ redis_group }}"
+- name: Create log directory if it does not exist
   when:
     - redis_logfile != '""'
     - not logdir.stat.exists
-
-- name: create log file if it does not exist
-  copy:
-    dest: "{{ redis_logfile }}"
-    content: ""
-    force: false # Don't override file contet if the file already exits
+  ansible.builtin.file:
+    state: directory
+    path: "{{ redis_logfile | dirname }}"
     owner: "{{ redis_user }}"
     group: "{{ redis_group }}"
-  when: redis_logfile != '""'
+    mode: "0755"
 
-- name: update permissions of log file if needed
-  file:
+- name: Create log file if it does not exist
+  when: redis_logfile != '""'
+  ansible.builtin.copy:
+    dest: "{{ redis_logfile }}"
+    content: ""
+    force: false # Don't override file content if the file already exists
+    owner: "{{ redis_user }}"
+    group: "{{ redis_group }}"
+    mode: "0644"
+
+- name: Update permissions of log file if needed
+  when: redis_logfile != '""'
+  ansible.builtin.file:
     state: file
     path: "{{ redis_logfile }}"
     owner: "{{ redis_user }}"
     group: "{{ redis_group }}"
-  when: redis_logfile != '""'
+    mode: "0644"
 
-- name: check if pid directory exists
-  stat:
-    path: "{{ redis_pidfile|dirname }}"
+- name: Check if pid directory exists
+  when: redis_pidfile != '""'
+  ansible.builtin.stat:
+    path: "{{ redis_pidfile | dirname }}"
   register: piddir
   changed_when: false
-  when: redis_pidfile != '""'
 
-- name: create pid directory if it does not exist
-  file:
-    state: directory
-    path: "{{ redis_pidfile|dirname }}"
-    owner: "{{ redis_user }}"
-    group: "{{ redis_group }}"
+- name: Create pid directory if it does not exist
   when:
     - redis_pidfile != '""'
     - not piddir.stat.exists
-
-- name: check for dynamic redis config file
-  stat:
+  ansible.builtin.file:
+    state: directory
+    path: "{{ redis_pidfile | dirname }}"
+    owner: "{{ redis_user }}"
+    group: "{{ redis_group }}"
+    mode: "0755"
+- name: Check for dynamic redis config file
+  ansible.builtin.stat:
     path: /etc/redis/{{ redis_port }}.conf
   register: redis_config_file
 
-- name: create dynamic redis config file
-  template:
+- name: Create dynamic redis config file
+  when: not redis_config_file.stat.exists
+  ansible.builtin.template:
     src: redis.conf.j2
     dest: /etc/redis/{{ redis_config_file_name }}
     owner: "{{ redis_user }}"
-    mode: 0640
-  when: not redis_config_file.stat.exists
-  notify: "restart redis {{ redis_port }}"
+    mode: "0640"
+  notify: "Restart redis {{ redis_port }}"
 
-- name: create static redis config file
-  template:
+- name: Create static redis config file
+  ansible.builtin.template:
     src: redis_include.conf.j2
     dest: /etc/redis/{{ redis_port }}.include.conf
     owner: "{{ redis_user }}"
-    mode: 0640
-  notify: "restart redis {{ redis_port }}"
+    mode: "0640"
+  notify: "Restart redis {{ redis_port }}"
 
-- name: add redis init config file
-  template:
+- name: Add redis init config file for RedHat
+  when: ansible_facts['os_family'] == "RedHat"
+  ansible.builtin.template:
     dest: /etc/sysconfig/{{ redis_service_name }}
     src: redis.init.conf.j2
-    mode: 0600
-  when: ansible_os_family == "RedHat"
-  notify: "restart redis {{ redis_port }}"
+    mode: "0600"
+  notify: "Restart redis {{ redis_port }}"
 
-- name: add redis init config file
-  template:
+- name: Add redis init config file for Debian
+  when: ansible_facts['os_family'] == "Debian"
+  ansible.builtin.template:
     dest: /etc/default/{{ redis_service_name }}
     src: redis.init.conf.j2
-    mode: 0600
-  when: ansible_os_family == "Debian"
-  notify: "restart redis {{ redis_port }}"
+    mode: "0600"
+  notify: "Restart redis {{ redis_port }}"
 
 # Flush handlers before ensuring the service is started to prevent
 # a start and then restart
-- name: flush handlers to apply config changes
-  meta: flush_handlers
+- name: Flush handlers to apply config changes
+  ansible.builtin.meta: flush_handlers
 
-- name: ensure redis is running
-  service:
+- name: Ensure redis is running
+  when: redis_as_service
+  ansible.builtin.service:
     name: "{{ redis_service_name }}"
     state: started
-  when: redis_as_service

@@ -1,26 +1,31 @@
 ---
+dependencies: []
+
 galaxy_info:
-  author: David Wittman
+  author: David Wittman, rndmh3ro, beechesII
   description: Highly configurable role to install Redis and Redis Sentinel from source
-  min_ansible_version: 2.4.0
+  min_ansible_version: 2.5.0
+  namespace: telekom_mms
+  role_name: redis
+  company: Deutsche Telekom MMS GmbH
   license: MIT
   platforms:
     - name: Ubuntu
       versions:
-        - all
+        - jammy
+        - noble
+        - resolute
     - name: Debian
       versions:
-        - all
+        - bookworm
+        - trixie
     - name: EL
       versions:
-        - 6
-        - 7
-    - name: SLES
+        - "9"
+        - "10"
+    - name: opensuse
       versions:
-        - 11
-        - 12
+        - all
   galaxy_tags:
     - database
     - nosql
-
-dependencies: []
